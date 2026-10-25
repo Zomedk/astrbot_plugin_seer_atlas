@@ -27,10 +27,15 @@ class SeerAtlas(Star):
         self.knowledge = KnowledgeStore(self.database_path, self.alias_path)
         self.recent_pets: dict[str, tuple[float, str]] = {}
         self._download_task: asyncio.Task | None = None
+        self._alias_task: asyncio.Task | None = None
         self._download_lock = asyncio.Lock()
-        if self.config.get("auto_download", True) and not self.database_path.is_file():
+        if self.config.get("auto_download", True):
             try:
-                self._download_task = asyncio.get_running_loop().create_task(self._download_missing())
+                loop = asyncio.get_running_loop()
+                if not self.database_path.is_file():
+                    self._download_task = loop.create_task(self._download_missing())
+                if not self.alias_path.is_file() and self.config.get("alias_database_url", ""):
+                    self._alias_task = loop.create_task(self._download_alias())
             except RuntimeError:
                 pass
 
@@ -46,18 +51,22 @@ class SeerAtlas(Star):
                 except Exception as exc:
                     logger.warning(f"赛尔星图：SeerAPI 数据库下载失败：{exc}")
                     return
-            if not self.alias_path.is_file():
-                url = self.config.get("alias_database_url", "")
-                if url:
-                    try:
-                        await download_sqlite(url, self.alias_path, "pet_aliases")
-                        logger.info("赛尔星图：别名数据库已缓存")
-                    except Exception as exc:
-                        logger.warning(f"赛尔星图：别名数据库下载失败：{exc}")
+
+    async def _download_alias(self) -> None:
+        url = self.config.get("alias_database_url", "")
+        if url and not self.alias_path.is_file():
+            try:
+                await download_sqlite(url, self.alias_path, "pet_aliases")
+                logger.info("赛尔星图：别名数据库已缓存")
+            except Exception as exc:
+                logger.warning(f"赛尔星图：别名数据库下载失败：{exc}")
 
     async def _ready(self) -> None:
         if self._download_task is None and self.config.get("auto_download", True) and not self.database_path.is_file():
             self._download_task = asyncio.create_task(self._download_missing())
+        if self._alias_task is None and self.config.get("auto_download", True) and not self.alias_path.is_file():
+            if self.config.get("alias_database_url", ""):
+                self._alias_task = asyncio.create_task(self._download_alias())
         if self._download_task is not None:
             await self._download_task
 
@@ -85,12 +94,13 @@ class SeerAtlas(Star):
         return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
 
     async def terminate(self) -> None:
-        if self._download_task and not self._download_task.done():
-            self._download_task.cancel()
-            try:
-                await self._download_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._download_task, self._alias_task):
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     @filter.llm_tool(name="seer_pet_profile")
     async def pet_profile(self, event: AstrMessageEvent, pet_query: str = ""):
