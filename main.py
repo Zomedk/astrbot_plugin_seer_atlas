@@ -47,7 +47,7 @@ class SeerAtlas(Star):
                 if not url:
                     return
                 try:
-                    await download_sqlite(url, self.database_path, "pet")
+                    await download_sqlite(url, self.database_path, "pet", proxy=self._proxy_url())
                     self._download_error = None
                     logger.info("赛尔星图：SeerAPI 数据库已缓存")
                 except Exception as exc:
@@ -59,10 +59,21 @@ class SeerAtlas(Star):
         url = self.config.get("alias_database_url", "")
         if url and not self.alias_path.is_file():
             try:
-                await download_sqlite(url, self.alias_path, "pet_aliases")
+                await download_sqlite(url, self.alias_path, "pet_aliases", proxy=self._proxy_url())
                 logger.info("赛尔星图：别名数据库已缓存")
             except Exception as exc:
                 logger.warning(f"赛尔星图：别名数据库下载失败：{exc!r}")
+
+    def _proxy_url(self) -> str | None:
+        port = int(self.config.get("proxy_port", 0) or 0)
+        if port == 0:
+            return None
+        if not 1 <= port <= 65535:
+            raise ValueError("代理端口必须在 1 至 65535 之间")
+        host = str(self.config.get("proxy_host", "127.0.0.1")).strip()
+        if not host or any(char in host for char in "/@?# \\:"):
+            raise ValueError("代理主机只填写主机名或 IP，不填写协议或端口")
+        return f"http://{host}:{port}"
 
     async def _ready(self) -> None:
         if self._download_task is None and self.config.get("auto_download", True) and not self.database_path.is_file():

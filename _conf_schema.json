@@ -16,5 +16,17 @@
     "type": "string",
     "default": "https://github.com/Nattsu39/ironsbot/releases/download/alias-db-latest/aliases-data.sqlite",
     "hint": "别名库可选；下载失败时仍可用精灵正式名称或 ID 查询"
+  },
+  "proxy_host": {
+    "description": "数据库下载代理主机",
+    "type": "string",
+    "default": "127.0.0.1",
+    "hint": "填写 AstrBot 所在服务器可访问的 HTTP 代理主机或 IP，不带 http:// 和端口"
+  },
+  "proxy_port": {
+    "description": "数据库下载代理端口",
+    "type": "int",
+    "default": 0,
+    "hint": "0 表示直连；填写 HTTP 代理端口后，SeerAPI 和别名库下载都会使用该代理"
   }
 }

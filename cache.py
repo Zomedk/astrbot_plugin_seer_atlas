@@ -13,7 +13,9 @@ import aiohttp
 MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 
 
-async def download_sqlite(url: str, destination: Path, required_table: str) -> None:
+async def download_sqlite(
+    url: str, destination: Path, required_table: str, proxy: str | None = None
+) -> None:
     """Stream, validate, then atomically install a SQLite snapshot."""
     if not url.startswith("https://"):
         raise ValueError("数据库下载地址必须使用 HTTPS")
@@ -22,7 +24,7 @@ async def download_sqlite(url: str, destination: Path, required_table: str) -> N
     timeout = aiohttp.ClientTimeout(total=180, connect=15)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url) as response:
+            async with session.get(url, proxy=proxy) as response:
                 response.raise_for_status()
                 if response.content_length and response.content_length > MAX_DOWNLOAD_BYTES:
                     raise ValueError("数据库下载超过 100 MiB 限额")
