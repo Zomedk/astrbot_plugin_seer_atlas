@@ -29,6 +29,7 @@ class SeerAtlas(Star):
         self._download_task: asyncio.Task | None = None
         self._alias_task: asyncio.Task | None = None
         self._download_lock = asyncio.Lock()
+        self._download_error: str | None = None
         if self.config.get("auto_download", True):
             try:
                 loop = asyncio.get_running_loop()
@@ -47,9 +48,11 @@ class SeerAtlas(Star):
                     return
                 try:
                     await download_sqlite(url, self.database_path, "pet")
+                    self._download_error = None
                     logger.info("赛尔星图：SeerAPI 数据库已缓存")
                 except Exception as exc:
-                    logger.warning(f"赛尔星图：SeerAPI 数据库下载失败：{exc}")
+                    self._download_error = type(exc).__name__
+                    logger.warning(f"赛尔星图：SeerAPI 数据库下载失败：{exc!r}")
                     return
 
     async def _download_alias(self) -> None:
@@ -59,7 +62,7 @@ class SeerAtlas(Star):
                 await download_sqlite(url, self.alias_path, "pet_aliases")
                 logger.info("赛尔星图：别名数据库已缓存")
             except Exception as exc:
-                logger.warning(f"赛尔星图：别名数据库下载失败：{exc}")
+                logger.warning(f"赛尔星图：别名数据库下载失败：{exc!r}")
 
     async def _ready(self) -> None:
         if self._download_task is None and self.config.get("auto_download", True) and not self.database_path.is_file():
@@ -90,6 +93,12 @@ class SeerAtlas(Star):
 
     async def _run(self, function, *args, **kwargs) -> str:
         await self._ready()
+        if not self.database_path.is_file():
+            return json.dumps({
+                "status": "unavailable",
+                "message": "SeerAPI 数据库不可用；请检查插件下载地址，或将 seerapi.sqlite 手动放入 AstrBot 的 plugin_data/astrbot_plugin_seer_atlas/ 目录。",
+                "download_error": self._download_error,
+            }, ensure_ascii=False)
         result = await asyncio.to_thread(function, *args, **kwargs)
         return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
 
@@ -112,7 +121,7 @@ class SeerAtlas(Star):
         query = self._pet_query(event, pet_query)
         result = await self._run(self.knowledge.pet_profile, query)
         self._remember_pet(event, json.loads(result))
-        yield event.plain_result(result)
+        return result
 
     @filter.llm_tool(name="seer_pet_skills")
     async def pet_skills(self, event: AstrMessageEvent, pet_query: str = "", offset: int = 0):
@@ -125,7 +134,7 @@ class SeerAtlas(Star):
         query = self._pet_query(event, pet_query)
         result = await self._run(self.knowledge.pet_skills, query, offset, 20)
         self._remember_pet(event, json.loads(result))
-        yield event.plain_result(result)
+        return result
 
     @filter.llm_tool(name="seer_skill_detail")
     async def skill_detail(self, event: AstrMessageEvent, skill_query: str,
@@ -139,7 +148,7 @@ class SeerAtlas(Star):
         """
         hp = None if own_hp_percent < 0 else own_hp_percent
         result = await self._run(self.knowledge.skill_detail, skill_query, pet_query, hp)
-        yield event.plain_result(result)
+        return result
 
     @filter.llm_tool(name="seer_soulmark")
     async def soulmark(self, event: AstrMessageEvent, pet_query: str = "",
@@ -154,7 +163,7 @@ class SeerAtlas(Star):
         hp = None if own_hp_percent < 0 else own_hp_percent
         result = await self._run(self.knowledge.soulmarks, query, hp)
         self._remember_pet(event, json.loads(result))
-        yield event.plain_result(result)
+        return result
 
     @filter.llm_tool(name="seer_type_matchup")
     async def type_matchup(self, event: AstrMessageEvent, defender_query: str,
@@ -168,7 +177,7 @@ class SeerAtlas(Star):
         """
         attacker = self._pet_query(event, attacker_query)
         result = await self._run(self.knowledge.matchup, attacker, defender_query, skill_query)
-        yield event.plain_result(result)
+        return result
 
     @filter.llm_tool(name="seer_type_profile")
     async def type_profile(self, event: AstrMessageEvent, subject_query: str = "", mode: str = "attack"):
@@ -180,4 +189,4 @@ class SeerAtlas(Star):
         """
         subject = self._pet_query(event, subject_query)
         result = await self._run(self.knowledge.type_profile, subject, mode)
-        yield event.plain_result(result)
+        return result
