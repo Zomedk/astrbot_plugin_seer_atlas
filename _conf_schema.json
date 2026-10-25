@@ -1,0 +1,20 @@
+{
+  "auto_download": {
+    "description": "首次启动时自动下载 SeerAPI SQLite 数据库",
+    "type": "bool",
+    "default": true,
+    "hint": "已有本地缓存时不会重复下载；数据存放在 AstrBot 的 plugin_data 目录"
+  },
+  "seerapi_database_url": {
+    "description": "SeerAPI SQLite 下载地址",
+    "type": "string",
+    "default": "https://github.com/SeerAPI/api-data/releases/download/latest/seerapi-data.sqlite",
+    "hint": "只在本地数据库不存在时使用；也可以手动放入 seerapi.sqlite"
+  },
+  "alias_database_url": {
+    "description": "精灵别名 SQLite 下载地址",
+    "type": "string",
+    "default": "https://github.com/Nattsu39/ironsbot/releases/download/alias-db-latest/aliases-data.sqlite",
+    "hint": "别名库可选；下载失败时仍可用精灵正式名称或 ID 查询"
+  }
+}
