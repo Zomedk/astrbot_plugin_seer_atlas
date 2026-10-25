@@ -9,8 +9,10 @@ __pycache__/
 .vscode/
 *.log
 *.sqlite
+*.sqlite3
 *.sqlite-*
 *.db
+*.db-*
 data/
 tests/
 scratch/

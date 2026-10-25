@@ -1,4 +1,4 @@
-"""AstrBot LLM tools for lightweight Seer pet knowledge."""
+"""AstrBot LLM tools backed by local, read-only Seer SQLite databases."""
 
 from __future__ import annotations
 
@@ -7,82 +7,21 @@ import json
 import time
 from pathlib import Path
 
-from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.star.star_tools import StarTools
 
-from .cache import download_sqlite
 from .knowledge import KnowledgeStore
 
 
 class SeerAtlas(Star):
-    def __init__(self, context: Context, config):
+    def __init__(self, context: Context, config=None):
         super().__init__(context)
-        self.config = config
         data_dir = Path(StarTools.get_data_dir("astrbot_plugin_seer_atlas"))
-        data_dir.mkdir(parents=True, exist_ok=True)
         self.database_path = data_dir / "seerapi.sqlite"
         self.alias_path = data_dir / "aliases.sqlite"
         self.knowledge = KnowledgeStore(self.database_path, self.alias_path)
         self.recent_pets: dict[str, tuple[float, str]] = {}
-        self._download_task: asyncio.Task | None = None
-        self._alias_task: asyncio.Task | None = None
-        self._download_lock = asyncio.Lock()
-        self._download_error: str | None = None
-        if self.config.get("auto_download", True):
-            try:
-                loop = asyncio.get_running_loop()
-                if not self.database_path.is_file():
-                    self._download_task = loop.create_task(self._download_missing())
-                if not self.alias_path.is_file() and self.config.get("alias_database_url", ""):
-                    self._alias_task = loop.create_task(self._download_alias())
-            except RuntimeError:
-                pass
-
-    async def _download_missing(self) -> None:
-        async with self._download_lock:
-            if not self.database_path.is_file():
-                url = self.config.get("seerapi_database_url", "")
-                if not url:
-                    return
-                try:
-                    await download_sqlite(url, self.database_path, "pet", proxy=self._proxy_url())
-                    self._download_error = None
-                    logger.info("赛尔星图：SeerAPI 数据库已缓存")
-                except Exception as exc:
-                    self._download_error = type(exc).__name__
-                    logger.warning(f"赛尔星图：SeerAPI 数据库下载失败：{exc!r}")
-                    return
-
-    async def _download_alias(self) -> None:
-        url = self.config.get("alias_database_url", "")
-        if url and not self.alias_path.is_file():
-            try:
-                await download_sqlite(url, self.alias_path, "pet_aliases", proxy=self._proxy_url())
-                logger.info("赛尔星图：别名数据库已缓存")
-            except Exception as exc:
-                logger.warning(f"赛尔星图：别名数据库下载失败：{exc!r}")
-
-    def _proxy_url(self) -> str | None:
-        port = int(self.config.get("proxy_port", 0) or 0)
-        if port == 0:
-            return None
-        if not 1 <= port <= 65535:
-            raise ValueError("代理端口必须在 1 至 65535 之间")
-        host = str(self.config.get("proxy_host", "127.0.0.1")).strip()
-        if not host or any(char in host for char in "/@?# \\:"):
-            raise ValueError("代理主机只填写主机名或 IP，不填写协议或端口")
-        return f"http://{host}:{port}"
-
-    async def _ready(self) -> None:
-        if self._download_task is None and self.config.get("auto_download", True) and not self.database_path.is_file():
-            self._download_task = asyncio.create_task(self._download_missing())
-        if self._alias_task is None and self.config.get("auto_download", True) and not self.alias_path.is_file():
-            if self.config.get("alias_database_url", ""):
-                self._alias_task = asyncio.create_task(self._download_alias())
-        if self._download_task is not None:
-            await self._download_task
 
     @staticmethod
     def _conversation_key(event: AstrMessageEvent) -> str:
@@ -103,24 +42,13 @@ class SeerAtlas(Star):
             self.recent_pets[self._conversation_key(event)] = (time.monotonic(), str(result["pet_id"]))
 
     async def _run(self, function, *args, **kwargs) -> str:
-        await self._ready()
         if not self.database_path.is_file():
             return json.dumps({
                 "status": "unavailable",
-                "message": "SeerAPI 数据库不可用；请检查插件下载地址，或将 seerapi.sqlite 手动放入 AstrBot 的 plugin_data/astrbot_plugin_seer_atlas/ 目录。",
-                "download_error": self._download_error,
+                "message": "本地 SeerAPI 数据库缺失；请将 seerapi.sqlite 上传至 AstrBot 的 data/plugin_data/astrbot_plugin_seer_atlas/ 目录。",
             }, ensure_ascii=False)
         result = await asyncio.to_thread(function, *args, **kwargs)
         return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-
-    async def terminate(self) -> None:
-        for task in (self._download_task, self._alias_task):
-            if task and not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
 
     @filter.llm_tool(name="seer_pet_profile")
     async def pet_profile(self, event: AstrMessageEvent, pet_query: str = ""):
